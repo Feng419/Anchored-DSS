@@ -2,352 +2,513 @@
 using namespace std;
 
 struct Graph {
-    int n;
-    long long m;
+    int n, m;
     vector<vector<int>> out_neighbors;
     vector<vector<int>> in_neighbors;
-    Graph(int nodes=0) : n(nodes), m(0) {
-        out_neighbors.assign(n+1, {});
-        in_neighbors.assign(n+1, {});
+    Graph(int n): n(n), m(0) {
+        out_neighbors.assign(n + 1, {});
+        in_neighbors.assign(n + 1, {});
     }
     void add_edge(int u, int v) {
-        if(u < 1 || u > n || v < 1 || v > n) return;
         out_neighbors[u].push_back(v);
         in_neighbors[v].push_back(u);
         m++;
     }
 };
 
-// Dinic 最大流算法（适用于 double 类型容量）
 struct FlowEdge {
     int v;
-    double cap;
+    int capacity;
     int rev;
 };
-struct Dinic {
+
+struct MaxFlow {
     int N;
     vector<vector<FlowEdge>> adj;
-    vector<int> level;
-    vector<int> it;
-    int source, sink;
-    double INF_CAP;
-    Dinic(int n) : N(n) {
-        adj.assign(n, {});
-        level.assign(n, 0);
-        it.assign(n, 0);
-        INF_CAP = 1e12;  // 近似无穷大的容量
-    }
-    void add_edge(int u, int v, double cap) {
+    MaxFlow(int N): N(N), adj(N) {}
+    void addEdge(int u, int v, int cap) {
         FlowEdge a = {v, cap, (int)adj[v].size()};
-        FlowEdge b = {u, 0.0, (int)adj[u].size()};
+        FlowEdge b = {u, 0, (int)adj[u].size()};
         adj[u].push_back(a);
         adj[v].push_back(b);
     }
-    bool bfs() {
+    bool bfs(int s, int t, vector<int> &level) {
         fill(level.begin(), level.end(), -1);
         deque<int> dq;
-        level[source] = 0;
-        dq.push_back(source);
-        while(!dq.empty()) {
+        level[s] = 0;
+        dq.push_back(s);
+
+        while (!dq.empty()) {
             int u = dq.front();
             dq.pop_front();
-            for(auto &e : adj[u]) {
-                if(level[e.v] < 0 && e.cap > 1e-9) {
+
+            for (auto &e : adj[u]) {
+                if (level[e.v] < 0 && e.capacity > 0) {
                     level[e.v] = level[u] + 1;
                     dq.push_back(e.v);
+
+                    if (e.v == t)
+                        return true;
                 }
             }
         }
-        return level[sink] >= 0;
+
+        return level[t] >= 0;
     }
-    double dfs(int u, double flow) {
-        if(u == sink) return flow;
-        for(int &i = it[u]; i < (int)adj[u].size(); ++i) {
+    int dfs(int u, int t, int flow, vector<int> &level, vector<int> &it) {
+        if (u == t)
+            return flow;
+
+        for (int &i = it[u]; i < (int)adj[u].size(); ++i) {
             FlowEdge &e = adj[u][i];
-            if(e.cap > 1e-9 && level[e.v] == level[u] + 1) {
-                double ret = dfs(e.v, min(flow, e.cap));
-                if(ret > 1e-9) {
-                    e.cap -= ret;
-                    adj[e.v][e.rev].cap += ret;
+
+            if (e.capacity > 0 && level[e.v] == level[u] + 1) {
+                int ret = dfs(e.v, t, min(flow, e.capacity), level, it);
+
+                if (ret > 0) {
+                    e.capacity -= ret;
+                    adj[e.v][e.rev].capacity += ret;
                     return ret;
                 }
             }
         }
-        return 0.0;
+
+        return 0;
     }
-    double max_flow(int s, int t) {
-        source = s;
-        sink = t;
-        double flow = 0.0;
-        while(bfs()) {
+    int maxflow(int s, int t) {
+        int total = 0;
+        vector<int> level(N), it(N);
+
+        while (bfs(s, t, level)) {
             fill(it.begin(), it.end(), 0);
-            while(true) {
-                double f = dfs(source, INF_CAP);
-                if(f < 1e-9) break;
-                flow += f;
+
+            while (int pushed = dfs(s, t, INT_MAX, level, it)) {
+                total += pushed;
             }
         }
-        return flow;
+
+        return total;
     }
 };
-
-namespace LADS {
-
-/// 局部扩展：从锚点集合 R 出发扩展候选区域
-vector<int> LocalAnchoredDensestSubgraph(const Graph &g, const vector<int> &R) {
-    int n = g.n;
-    vector<char> inRegion(n+1, false);
-    deque<int> dq;
-    // 将 R 中的节点加入候选区域
-    for(int u: R) {
-        if(u >= 1 && u <= n && !inRegion[u]) {
-            inRegion[u] = true;
-            dq.push_back(u);
-        }
-    }
-    // 扩展 1 跳邻居（出邻居和入邻居）
-    size_t idx = 0;
-    while(idx < dq.size()) {
-        int u = dq[idx++];
-        // 添加 u 的所有出邻居
-        for(int v: g.out_neighbors[u]) {
-            if(!inRegion[v]) {
-                inRegion[v] = true;
-                dq.push_back(v);
-            }
-        }
-        // 添加 u 的所有入邻居
-        for(int v: g.in_neighbors[u]) {
-            if(!inRegion[v]) {
-                inRegion[v] = true;
-                dq.push_back(v);
-            }
-        }
-        // （以上简单实现为将 R 节点的直接邻居加入区域。
-        // 根据需要可多跳扩展，这里采用 1 跳邻域作为候选区域。）
-    }
-    // 将候选区域节点输出为 vector 并排序
-    vector<int> region;
-    region.reserve(dq.size());
-    for(int node: dq) {
-        region.push_back(node);
-    }
-    sort(region.begin(), region.end());
-    region.erase(unique(region.begin(), region.end()), region.end());
-    return region;
-}
-
-/// 基于最大流和二分查找的全局优化：在候选区域上优化 ρ_R(S, T)
-tuple<vector<int>, vector<int>, double> ImprovedGlobalAnchoredDensestSubgraphSetFlow(
-        const Graph &g, const vector<int> &R, const vector<int> &region) {
-    int k = region.size();
-    // 建立候选区域节点到索引的映射
-    vector<int> mapToIndex(g.n+1, -1);
-    for(int i = 0; i < k; ++i) {
-        mapToIndex[region[i]] = i;
-    }
-    // 计算 vol(R) = ∑_{u∈R} |N_out(u)| （R 中节点的出度总和）
-    double volR = 0.0;
-    for(int u: R) {
-        if(u >= 1 && u <= g.n) {
-            volR += (double)g.out_neighbors[u].size();
-        }
-    }
-    if(volR < 0.0) volR = 0.0;
-    // 初始化二分范围 [low, high]
-    double low = 0.0, high = 0.0;
-    for(int u: R) {
-        if(u >= 1 && u <= g.n) {
-            high += (double)g.out_neighbors[u].size();
-            high += (double)g.in_neighbors[u].size();
-        }
-    }
-    if(high < 1.0) high = 1.0;
-
-    // 存储当前最佳解（S、T 切割）对应的 out_cut 和 in_cut 标记
-    vector<char> best_out_cut, best_in_cut;
-    double best_alpha = 0.0;
-
-    // 二分搜索最佳 ρ 值
-    for(int iter = 0; iter < 50; ++iter) {
-        double mid = (low + high) / 2.0;
-        // 构造流网络并计算给定 α(mid) 下的最小割
-        int totalNodes = 2 + 2 * k;
-        int source = 0, sink = 1;
-        Dinic flow(totalNodes);
-        // 添加锚点节点的约束（R 中节点必须包含在 S 和 T 中）
-        for(int u: R) {
-            if(mapToIndex[u] != -1) {
-                int idx = mapToIndex[u];
-                int u_out = 2 + idx;
-                int u_in  = 2 + k + idx;
-                // 锚点 u_in 和 u_out 都与源点连接无限容量边（确保锚点出点和入点都在源点一侧）
-                flow.add_edge(source, u_in, flow.INF_CAP);
-                flow.add_edge(source, u_out, flow.INF_CAP);
-            }
-        }
-        // 添加非锚点节点的成员资格边
-        for(int idx = 0; idx < k; ++idx) {
-            int u = region[idx];
-            bool isAnchor = (find(R.begin(), R.end(), u) != R.end());
-            if(isAnchor) continue;
-            int u_out = 2 + idx;
-            int u_in  = 2 + k + idx;
-            // 排除在 T 中（u_in 连到源点）的代价为 mid
-            flow.add_edge(source, u_in, mid);
-            // 排除在 S 中（u_out 连到汇点）的代价为 mid
-            flow.add_edge(u_out, sink, mid);
-        }
-        // 添加原图中的有向边对应的容量为1的边（u_out -> v_in）
-        for(int idx = 0; idx < k; ++idx) {
-            int u = region[idx];
-            for(int v: g.out_neighbors[u]) {
-                int v_idx = (v >= 1 && v <= g.n ? mapToIndex[v] : -1);
-                if(v_idx != -1) {
-                    int u_out = 2 + idx;
-                    int v_in  = 2 + k + v_idx;
-                    flow.add_edge(u_out, v_in, 1.0);
-                }
-            }
-        }
-        // 计算最大流，对应求得当前 α 下的最小割
-        double cutVal = flow.max_flow(source, sink);
-        // 从残差网络中 BFS 找到源点可达节点，判定 S、T 集合
-        vector<char> vis(totalNodes, false);
-        deque<int> dq;
-        dq.push_back(source);
-        vis[source] = true;
-        while(!dq.empty()) {
-            int u = dq.front();
-            dq.pop_front();
-            for(auto &e : flow.adj[u]) {
-                if(e.cap > 1e-9 && !vis[e.v]) {
-                    vis[e.v] = true;
-                    dq.push_back(e.v);
-                }
-            }
-        }
-        vector<char> out_in_cut(k, false), in_in_cut(k, false);
-        for(int idx = 0; idx < k; ++idx) {
-            int u_out = 2 + idx;
-            int u_in  = 2 + k + idx;
-            if(vis[u_out]) out_in_cut[idx] = true;
-            if(vis[u_in])  in_in_cut[idx] = true;
-        }
-        // 根据最小割与 vol(R) 的关系调整二分范围，并记录当前最好解
-        if(cutVal < volR - 1e-9) {
-            // 如果割值 < vol(R)，说明当前 α 偏低（存在密度更高的子图），提高下界
-            best_alpha = mid;
-            best_out_cut = out_in_cut;
-            best_in_cut = in_in_cut;
-            low = mid;
-        } else {
-            // 否则割值 >= vol(R)，α 偏高，降低上界
-            high = mid;
-        }
-    }
-
-    // 根据记录的最佳 cut 标记重构 S 和 T 集合
-    vector<int> Sset, Tset;
-    if(!best_out_cut.empty()) {
-        for(int idx = 0; idx < k; ++idx) {
-            if(best_out_cut[idx]) Sset.push_back(region[idx]);
-            if(!best_in_cut.empty() && best_in_cut[idx]) Tset.push_back(region[idx]);
-        }
-    }
-    // 确保锚点 R 中的节点都包含在输出的 S 和 T 中
-    for(int u: R) {
-        if(find(Sset.begin(), Sset.end(), u) == Sset.end()) {
-            Sset.push_back(u);
-        }
-        if(find(Tset.begin(), Tset.end(), u) == Tset.end()) {
-            Tset.push_back(u);
-        }
-    }
-    sort(Sset.begin(), Sset.end());
-    sort(Tset.begin(), Tset.end());
-    // 计算输出子图的实际 ρ_R(S,T) 值
-    unordered_set<int> Sset_h(Sset.begin(), Sset.end());
-    unordered_set<int> Tset_h(Tset.begin(), Tset.end());
-    long long edges_ST = 0;
-    for(int u: Sset) {
-        for(int v: g.out_neighbors[u]) {
-            if(Tset_h.count(v)) {
-                edges_ST++;
-            }
-        }
-    }
-    long long sum_out = 0;
-    for(int u: Sset) {
-        if(find(R.begin(), R.end(), u) != R.end()) continue;
-        for(int v: g.out_neighbors[u]) {
-            if(Tset_h.count(v)) {
-                sum_out++;
-            }
-        }
-    }
-    long long sum_in = 0;
-    for(int v: Tset) {
-        if(find(R.begin(), R.end(), v) != R.end()) continue;
-        for(int u: g.in_neighbors[v]) {
-            if(Sset_h.count(u)) {
-                sum_in++;
-            }
-        }
-    }
-    double numerator = 2.0 * edges_ST - (double)sum_out - (double)sum_in;
-    double denom = sqrt((double)Sset.size() * (double)Tset.size());
-    double density = (denom > 1e-9 ? numerator / denom : 0.0);
-    return {Sset, Tset, density};
-}
-
-} // namespace LADS
 
 int main() {
     ios::sync_with_stdio(false);
     cin.tie(NULL);
 
-    // 读取输入
     int n, m;
-    if(!(cin >> n >> m)) {
+
+    if (!(cin >> n >> m)) {
         return 0;
     }
-    Graph g(n);
-    for(int i = 0; i < m; ++i) {
+
+    Graph G(n);
+
+    for (int i = 0; i < m; ++i) {
         int u, v;
         cin >> u >> v;
-        g.add_edge(u, v);
+        G.add_edge(u, v);
     }
-    int r_size;
-    cin >> r_size;
-    vector<int> R;
-    R.reserve(r_size);
-    for(int i = 0; i < r_size; ++i) {
-        int node;
-        cin >> node;
-        R.push_back(node);
+
+    int r;
+    cin >> r;
+    vector<int> R_nodes(r);
+    unordered_set<int> R;
+    R.reserve(r * 2);
+
+    for (int i = 0; i < r; ++i) {
+        cin >> R_nodes[i];
+        R.insert(R_nodes[i]);
     }
-    sort(R.begin(), R.end());
-    R.erase(unique(R.begin(), R.end()), R.end());
-    // 局部扩展得到候选区域
-    vector<int> region = LADS::LocalAnchoredDensestSubgraph(g, R);
-    // 全局优化求解最佳 S, T 和对应的 ρ 值
-    auto [S, T, rho] = LADS::ImprovedGlobalAnchoredDensestSubgraphSetFlow(g, R, region);
-    // 输出结果
+
+    // Prepare outdeg and indeg arrays
+    vector<int> outdeg(n + 1), indeg(n + 1);
+
+    for (int u = 1; u <= n; ++u) {
+        outdeg[u] = G.out_neighbors[u].size();
+        indeg[u] = G.in_neighbors[u].size();
+    }
+
+    // Frank-Wolfe algorithm to compute r and beta values
+    vector<double> r_out(n + 1, 0.0), r_in(n + 1, 0.0);
+    vector<double> beta_out(n + 1, 0.0), beta_in(n + 1, 0.0);
+    int maxIter = 50;
+
+    for (int iter = 1; iter <= maxIter; ++iter) {
+        // Distribute weights for each edge based on current r + beta
+        for (int u = 1; u <= n; ++u) {
+            double ru = r_out[u] + beta_out[u];
+
+            for (int v : G.out_neighbors[u]) {
+                double rv = r_in[v] + beta_in[v];
+
+                if (ru < rv) {
+                    r_out[u] += 1.0;
+                } else if (ru > rv) {
+                    r_in[v] += 1.0;
+                } else {
+                    // If equal, split the weight
+                    r_out[u] += 0.5;
+                    r_in[v] += 0.5;
+                }
+            }
+        }
+
+        // Find the current maximum value of r(u)+beta(u) across all u (for both out and in roles)
+        double v_max = -1e12;
+
+        for (int u = 1; u <= n; ++u) {
+            double val_out = r_out[u] + beta_out[u];
+            double val_in  = r_in[u] + beta_in[u];
+
+            if (val_out > v_max)
+                v_max = val_out;
+
+            if (val_in  > v_max)
+                v_max = val_in;
+        }
+
+        // Adjust beta for anchor nodes (nodes in R)
+        for (int u : R_nodes) {
+            if (u >= 1 && u <= n) {
+                // Ensure anchor's out and in values reach v_max
+                double current_out = r_out[u] + beta_out[u];
+                double current_in  = r_in[u] + beta_in[u];
+                beta_out[u] += (v_max - current_out);
+                beta_in[u]  += (v_max - current_in);
+            }
+        }
+    }
+
+    // Compute combined values for threshold candidates
+    vector<double> values;
+    values.reserve(2 * n + 1);
+
+    for (int u = 1; u <= n; ++u) {
+        values.push_back(r_out[u] + beta_out[u]);
+        values.push_back(r_in[u] + beta_in[u]);
+    }
+
+    // Include 0 as a candidate to consider possibly including all nodes
+    values.push_back(0.0);
+    sort(values.begin(), values.end(), greater<double>());
+    // Remove duplicate (or very close) values
+    values.erase(unique(values.begin(), values.end(), [&](double a, double b) {
+        return fabs(a - b) < 1e-9;
+    }), values.end());
+
+    double best_density = -1e12;
+    vector<int> best_S, best_T;
+    // Temporary membership flags for S and T
+    vector<char> inS(n + 1), inT(n + 1);
+
+    for (double lambda : values) {
+        // Build S and T based on threshold lambda
+        // S = {u | r_out[u] + beta_out[u] >= lambda}
+        // T = {v | r_in[v] + beta_in[v] >= lambda}
+        int S_size = 0, T_size = 0;
+
+        for (int u = 1; u <= n; ++u) {
+            if (r_out[u] + beta_out[u] >= lambda) {
+                inS[u] = 1;
+                S_size++;
+            } else {
+                inS[u] = 0;
+            }
+
+            if (r_in[u] + beta_in[u] >= lambda) {
+                inT[u] = 1;
+                T_size++;
+            } else {
+                inT[u] = 0;
+            }
+        }
+
+        // Ensure R ⊆ S ∪ T by adding any missing anchor to S (if not in either)
+        for (int u : R_nodes) {
+            if (u < 1 || u > n)
+                continue;
+
+            if (!inS[u] && !inT[u]) {
+                inS[u] = 1;
+                S_size++;
+            }
+        }
+
+        // If either S or T is empty, skip (density undefined or 0)
+        if (S_size == 0 || T_size == 0) {
+            continue;
+        }
+
+        // Compute numerator components for ρ_R(S, T)
+        long long edges_in_ST = 0;
+        long long out_penalty = 0;
+        long long in_penalty = 0;
+
+        // Sum full outdeg and indeg for non-anchor nodes in S and T
+        for (int u = 1; u <= n; ++u) {
+            if (inS[u] && R.find(u) == R.end()) {
+                out_penalty += outdeg[u];
+            }
+
+            if (inT[u] && R.find(u) == R.end()) {
+                in_penalty += indeg[u];
+            }
+        }
+
+        // Subtract edges that are internal (from S to T)
+        for (int u = 1; u <= n; ++u) {
+            if (!inS[u])
+                continue;
+
+            for (int v : G.out_neighbors[u]) {
+                if (inT[v]) {
+                    edges_in_ST++;
+
+                    if (R.find(u) == R.end())
+                        out_penalty--;
+
+                    if (R.find(v) == R.end())
+                        in_penalty--;
+                }
+            }
+        }
+
+        // Compute density = (2*edges_in_ST - out_penalty - in_penalty) / sqrt(|S| * |T|)
+        double numerator = 2.0 * edges_in_ST - (double)out_penalty - (double)in_penalty;
+        double density_value = numerator / sqrt((double)S_size * T_size);
+
+        if (density_value > best_density) {
+            best_density = density_value;
+            best_S.clear();
+            best_T.clear();
+
+            // Record best S and T sets
+            for (int u = 1; u <= n; ++u) {
+                if (inS[u])
+                    best_S.push_back(u);
+            }
+
+            for (int v = 1; v <= n; ++v) {
+                if (inT[v])
+                    best_T.push_back(v);
+            }
+        }
+    }
+
+    // Ensure anchors are included in the final solution (R ⊆ S ∪ T)
+    unordered_set<int> S_set(best_S.begin(), best_S.end());
+    unordered_set<int> T_set(best_T.begin(), best_T.end());
+
+    for (int u : R_nodes) {
+        if (u < 1 || u > n)
+            continue;
+
+        if (S_set.find(u) == S_set.end() && T_set.find(u) == T_set.end()) {
+            // If an anchor somehow not included, add it to S by default
+            best_S.push_back(u);
+            S_set.insert(u);
+        }
+    }
+
+    // Adjust anchor nodes not to be in both sets if not needed (to potentially improve density)
+    // If an anchor has no outgoing edges in subgraph, remove it from S; if no incoming edges, remove from T.
+    // This step ensures R ⊆ S ∪ T still holds.
+    // Recompute membership flags for final sets
+    S_set.clear();
+    T_set.clear();
+
+    for (int u : best_S)
+        S_set.insert(u);
+
+    for (int v : best_T)
+        T_set.insert(v);
+
+    for (int u : R_nodes) {
+        if (u < 1 || u > n)
+            continue;
+
+        bool inS_final = S_set.find(u) != S_set.end();
+        bool inT_final = T_set.find(u) != T_set.end();
+        // Count edges from u to T (out edges inside subgraph)
+        bool hasOutEdgeInside = false;
+
+        if (inS_final) {
+            for (int w : G.out_neighbors[u]) {
+                if (T_set.find(w) != T_set.end()) {
+                    hasOutEdgeInside = true;
+                    break;
+                }
+            }
+        }
+
+        bool hasInEdgeInside = false;
+
+        if (inT_final) {
+            for (int p : G.in_neighbors[u]) {
+                if (S_set.find(p) != S_set.end()) {
+                    hasInEdgeInside = true;
+                    break;
+                }
+            }
+        }
+
+        if (inS_final && !hasOutEdgeInside) {
+            // remove u from S if it's there without contributing edges
+            S_set.erase(u);
+        }
+
+        if (inT_final && !hasInEdgeInside) {
+            // remove u from T if it's there without contributing edges
+            T_set.erase(u);
+        }
+
+        // Ensure anchor still in at least one set
+        if (S_set.find(u) == S_set.end() && T_set.find(u) == T_set.end()) {
+            // If both removed, add anchor to S by default
+            S_set.insert(u);
+        }
+    }
+
+    // Reconstruct best_S and best_T from sets, sorted for output
+    best_S.assign(S_set.begin(), S_set.end());
+    best_T.assign(T_set.begin(), T_set.end());
+    sort(best_S.begin(), best_S.end());
+    sort(best_T.begin(), best_T.end());
+    // Recompute best_density with adjusted anchor distribution (for final output accuracy)
+    // Compute edges and penalties for final sets
+    unordered_set<int> S_final_set(best_S.begin(), best_S.end());
+    unordered_set<int> T_final_set(best_T.begin(), best_T.end());
+    long long edges_in_ST_final = 0;
+    long long out_penalty_final = 0;
+    long long in_penalty_final = 0;
+
+    for (int u : best_S) {
+        if (R.find(u) == R.end()) {
+            out_penalty_final += outdeg[u];
+        }
+    }
+
+    for (int v : best_T) {
+        if (R.find(v) == R.end()) {
+            in_penalty_final += indeg[v];
+        }
+    }
+
+    for (int u : best_S) {
+        for (int v : G.out_neighbors[u]) {
+            if (T_final_set.find(v) != T_final_set.end()) {
+                edges_in_ST_final++;
+
+                if (R.find(u) == R.end())
+                    out_penalty_final--;
+
+                if (R.find(v) == R.end())
+                    in_penalty_final--;
+            }
+        }
+    }
+
+    double numerator_final = 2.0 * edges_in_ST_final - (double)out_penalty_final - (double)in_penalty_final;
+    double density_final = numerator_final;
+
+    // If S or T is empty (should not happen because anchor fix ensured anchors in one set), handle to avoid /0
+    if (!best_S.empty() && !best_T.empty()) {
+        density_final = numerator_final / sqrt((double)best_S.size() * best_T.size());
+    } else {
+        density_final = 0.0;
+    }
+
+    // Maximum flow stability check (for verification, not necessarily used to adjust output further)
+    // Build flow network
+    int source = 0;
+    int sink = n + 1;
+    MaxFlow flow(n + 2);
+
+    // Source to each node in subgraph
+    for (int u : best_S) {
+        if (R.find(u) != R.end()) {
+            flow.addEdge(source, u, INT_MAX); // anchor node
+        } else {
+            // capacity = number of anchor neighbors in subgraph
+            int cap = 0;
+
+            for (int w : G.out_neighbors[u]) {
+                if (R.find(w) != R.end() && T_final_set.find(w) != T_final_set.end())
+                    cap++;
+            }
+
+            for (int w : G.in_neighbors[u]) {
+                if (R.find(w) != R.end() && S_final_set.find(w) != S_final_set.end())
+                    cap++;
+            }
+
+            flow.addEdge(source, u, cap);
+        }
+    }
+
+    // Edges between nodes (directed) as per anchor connections
+    for (int u : best_S) {
+        for (int v : G.out_neighbors[u]) {
+            if (S_final_set.find(u) != S_final_set.end() && T_final_set.find(v) != T_final_set.end()) {
+                // only consider edges where one endpoint is anchor
+                if (R.find(v) != R.end()) {
+                    // v is anchor, add edge u->v
+                    flow.addEdge(u, v, 1);
+                }
+
+                if (R.find(u) != R.end()) {
+                    // u is anchor, add edge v->u
+                    flow.addEdge(v, u, 1);
+                }
+            }
+        }
+    }
+
+    // Nodes to sink with capacity = density_value (rounded or as int if rational? We'll use numerator to avoid fractional)
+    // They used ρ_R(S*) itself. We'll use numerator_final (which is ρ * sqrt(|S||T|)) as capacity to avoid fractions.
+    // But numerator_final could be non-integer (though original measure fraction can be rational).
+    // To avoid floating, multiply by common denom (maybe 2) or scale by subgraph size:
+    // Instead, we'll multiply all flow capacities by 2 (since measure formula uses 2*E).
+    // Actually, numerator_final = 2|E|-... is integer, since edges and penalties are integers.
+    // So numerator_final is rational? Wait, 2*edges - sums = integer indeed.
+    // So we can use numerator_final as int capacity (since it should be integer).
+    int rho_capacity = (int) llround(numerator_final);
+
+    if (rho_capacity < 0)
+        rho_capacity = 0;
+
+    for (int u : best_S) {
+        flow.addEdge(u, sink, rho_capacity);
+    }
+
+    // Compute max flow
+    flow.maxflow(source, sink);
+    // (We could check min cut equality condition here if needed)
+
+    // Output the result
     cout << "S = {";
-    for(size_t i = 0; i < S.size(); ++i) {
-        cout << S[i];
-        if(i < S.size() - 1) cout << ", ";
+
+    for (size_t i = 0; i < best_S.size(); ++i) {
+        cout << best_S[i];
+
+        if (i < best_S.size() - 1)
+            cout << ", ";
     }
+
     cout << "}\n";
     cout << "T = {";
-    for(size_t j = 0; j < T.size(); ++j) {
-        cout << T[j];
-        if(j < T.size() - 1) cout << ", ";
+
+    for (size_t j = 0; j < best_T.size(); ++j) {
+        cout << best_T[j];
+
+        if (j < best_T.size() - 1)
+            cout << ", ";
     }
+
     cout << "}\n";
     cout.setf(std::ios::fixed);
     cout << setprecision(6);
-    cout << "rho_R(S,T) = " << rho << "\n";
+    cout << "rho_R(S,T) = " << density_final << "\n";
+
     return 0;
 }
